@@ -23,9 +23,10 @@ def favourite_coffee():
     if not auth_header or not auth_header.startswith('Basic '):
         return jsonify({'error': 'Invalid or missing authorization'}), 401
     auth_string = base64.b64decode(auth_header[6:]).decode('utf-8')
-    user, password = auth_string.split(':')  # In a real app, you would also verify the password
+    user, password = auth_string.split(':')
 
     if request.method == 'POST':
+        # Get favourite coffee from JSON body
         coffee = request.json.get('favouriteCoffee')
         if not coffee:
             return jsonify({'error': 'Missing favouriteCoffee in JSON body'}), 400
@@ -34,11 +35,13 @@ def favourite_coffee():
         if user in users and users[user] in coffee_counter:
             coffee_counter[users[user]] -= 1
 
+        # Update user's favourite coffee and increase its count
         users[user] = coffee
         coffee_counter[coffee] += 1
         return leaderboard()
 
     elif request.method == 'GET':
+        # Return user's favourite coffee
         return jsonify({'favouriteCoffee': users.get(user)})
 
 
@@ -48,7 +51,7 @@ def leaderboard():
     top_coffees = coffee_counter.most_common(3)
     return jsonify({'top3': [{coffee: count} for coffee, count in top_coffees]})
 
-
+# Register our blueprint under the url_prefix /v1
 app.register_blueprint(v1_blueprint)
 
 if __name__ == "__main__":
