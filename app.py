@@ -54,5 +54,9 @@ def leaderboard():
 # Register our blueprint under the url_prefix /v1
 app.register_blueprint(v1_blueprint)
 
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'healthy'})
+
 if __name__ == "__main__":
-    app.run(debug=True, port=8080)
+    app.run(debug=True, host="0.0.0.0", port=8080)

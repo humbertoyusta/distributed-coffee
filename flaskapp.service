@@ -1,0 +1,13 @@
+[Unit]
+Description=Flask Application Service
+After=network.target
+
+[Service]
+User=ec2-user
+WorkingDirectory=/home/ec2-user/code
+Environment="PATH=/home/ec2-user/code/venv/bin"
+ExecStart=/home/ec2-user/code/venv/bin/python /home/ec2-user/code/app.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
