@@ -1,0 +1,61 @@
+version: '3.7'
+
+x-backend-defaults: &backend-defaults
+  build:
+    context: ./backend
+    dockerfile: ../docker/Dockerfile-backend
+  environment:
+    - DATABASE_HOST=db
+    - DATABASE_USERNAME=root
+    - DATABASE_PASSWORD=password
+    - DATABASE_PORT=5432
+    - DATABASE_NAME=distributed_app
+  networks:
+    - distributed-app
+  depends_on:
+    - db
+
+services:
+  loadbalancer:
+    build:
+      context: ./loadbalancer
+      dockerfile: ../docker/Dockerfile-loadbalancer
+    ports:
+      - "8080:8080"
+    environment:
+      - NUMBER_OF_BACKENDS=3
+      - PYTHONUNBUFFERED=1
+    networks:
+      - distributed-app
+
+  backend-1:
+    <<: *backend-defaults
+    ports:
+      - "8081:8080"
+
+  backend-2:
+    <<: *backend-defaults
+    ports:
+      - "8082:8080"
+
+  backend-3:
+    <<: *backend-defaults
+    ports:
+      - "8083:8080"
+
+  db:
+    image: postgres:15.3-alpine3.18
+    environment:
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=distributed_app
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - distributed-app
+
+volumes:
+  postgres_data:
+
+networks:
+  distributed-app:
