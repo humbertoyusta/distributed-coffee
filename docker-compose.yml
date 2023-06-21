@@ -14,6 +14,8 @@ x-backend-defaults: &backend-defaults
     - distributed-app
   depends_on:
     - db
+  env_file:
+    - backend/.env
 
 services:
   loadbalancer:
@@ -42,6 +44,17 @@ services:
     <<: *backend-defaults
     ports:
       - "8083:8080"
+
+  notification_service:
+    build:
+      context: ./notification_service
+      dockerfile: ../docker/Dockerfile-notification_service
+    environment:
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - notification_service/.env
+    networks:
+      - distributed-app
 
   db:
     image: postgres:15.3-alpine3.18
