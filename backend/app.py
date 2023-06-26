@@ -1,6 +1,9 @@
+from datetime import datetime
+import redis as redis
 from flask import Flask, Blueprint, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.sql import func
+from sqlalchemy import MetaData
 import os
 import base64
 import json
@@ -19,8 +22,19 @@ app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql://{DATABASE_USERNAME}:{DATA
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app) # Initialize SQLAlchemy
-sqs = boto3.client('sqs') # Initialize SQS client
-QUEUE_URL = os.getenv('QUEUE_URL')  # Get your SQS Queue URL from environment variable
+USE_SQS = os.getenv('USE_SQS')  # Get the USE_SQS variable from environment
+if USE_SQS and USE_SQS.lower() == 'true':
+    sqs = boto3.client('sqs') # Initialize SQS client
+    QUEUE_URL = os.getenv('QUEUE_URL')  # Get your SQS Queue URL from environment variable
+
+
+def get_redis() -> redis.Redis:
+    return redis.Redis(
+        host=os.getenv('REDIS_HOST'),
+        port=int(os.getenv('REDIS_PORT')),
+        db=int(os.getenv('REDIS_DB')),
+        password=os.getenv('REDIS_PASSWORD')
+    )
 
 
 # Define a model for Users
@@ -29,10 +43,10 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     coffee = db.Column(db.String(80), nullable=True)
 
+rate_limits = {}  # Dictionary to store rate limits for each user
 
 # Define a blueprint for version 1 of our API
 v1_blueprint = Blueprint('v1', __name__, url_prefix='/v1')
-
 
 @v1_blueprint.route('/user', methods=['POST'])
 def create_user():
@@ -48,15 +62,16 @@ def create_user():
     db.session.add(user)
     db.session.commit()
 
-    # Send a message to SQS queue
-    sqs.send_message(
-        QueueUrl=QUEUE_URL,
-        MessageBody=json.dumps({
-            'userId': user.id,
-            'username': user.username,
-            'event': 'User Created'
-        })
-    )
+    if USE_SQS and USE_SQS.lower() == 'true':
+        # Send a message to SQS queue
+        sqs.send_message(
+            QueueUrl=QUEUE_URL,
+            MessageBody=json.dumps({
+                'userId': user.id,
+                'username': user.username,
+                'event': 'User Created'
+            })
+        )
 
     return jsonify({'message': 'User created successfully'}), 201
 
@@ -93,6 +108,24 @@ def favourite_coffee():
 
 @v1_blueprint.route('/admin/coffee/favourite/leadeboard', methods=['GET'])
 def leaderboard():
+    # Basic auth token handling - getting user
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Basic '):
+        return jsonify({'error': 'Invalid or missing authorization'}), 401
+    auth_string = base64.b64decode(auth_header[6:]).decode('utf-8')
+    user_name, password = auth_string.split(':')
+
+    current_minute = datetime.now().strftime('%Y-%m-%d-%H-%M')
+
+    user_key = f"leaderboard_rate_limit:{user_name}:{current_minute}"
+    redis_client = get_redis()
+
+    if redis_client.exists(user_key) and int(redis_client.get(user_key).decode()) >= 3:
+        return jsonify({'error': 'Rate limit exceeded'}), 429  # Return 429 Too Many Requests
+    else:
+        redis_client.incr(user_key, 1)
+        redis_client.expire(user_key, 60)  # Expire key after 1 minute
+
     # Show the top 3 most popular coffees
     top_coffees = db.session.query(User.coffee, func.count(User.coffee))\
                              .group_by(User.coffee)\
@@ -114,5 +147,8 @@ def health():
 if __name__ == "__main__":
     # Create database tables if they don't exist
     with app.app_context():
-        db.create_all()
+        metadata = MetaData()
+        metadata.reflect(bind=db.engine)
+        if 'user' not in metadata.tables:
+            db.create_all()
     app.run(debug=True, host="0.0.0.0", port=8080)
