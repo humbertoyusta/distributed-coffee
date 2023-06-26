@@ -10,12 +10,20 @@ x-backend-defaults: &backend-defaults
     - DATABASE_PASSWORD=password
     - DATABASE_PORT=5432
     - DATABASE_NAME=distributed_app
+    - REDIS_HOST=redis
+    - REDIS_PORT=6379
+    - REDIS_PASSWORD=password
+    - REDIS_DB=0
+    - USE_SQS=false
+    - PYTHONUNBUFFERED=1
   networks:
     - distributed-app
   depends_on:
     - db
   env_file:
     - backend/.env
+  volumes:
+    - ./backend:/app
 
 services:
   loadbalancer:
@@ -29,6 +37,8 @@ services:
       - PYTHONUNBUFFERED=1
     networks:
       - distributed-app
+    volumes:
+      - ./loadbalancer:/app
 
   backend-1:
     <<: *backend-defaults
@@ -45,16 +55,16 @@ services:
     ports:
       - "8083:8080"
 
-  notification_service:
-    build:
-      context: ./notification_service
-      dockerfile: ../docker/Dockerfile-notification_service
-    environment:
-      - PYTHONUNBUFFERED=1
-    env_file:
-      - notification_service/.env
-    networks:
-      - distributed-app
+#  notification_service:
+#    build:
+#      context: ./notification_service
+#      dockerfile: ../docker/Dockerfile-notification_service
+#    environment:
+#      - PYTHONUNBUFFERED=1
+#    env_file:
+#      - notification_service/.env
+#    networks:
+#      - distributed-app
 
   db:
     image: postgres:15.3-alpine3.18
@@ -67,8 +77,19 @@ services:
     networks:
       - distributed-app
 
+  redis:
+    image: redis:7.2-rc2-alpine3.18
+    command: redis-server --appendonly yes --requirepass password
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - distributed-app
+
 volumes:
   postgres_data:
+  redis-data:
 
 networks:
   distributed-app:
