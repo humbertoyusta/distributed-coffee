@@ -78,6 +78,22 @@ def create_user():
 
 @v1_blueprint.route('/coffee/favourite', methods=['GET', 'POST'])
 def favourite_coffee():
+    if request.method == 'POST':
+        ip_address = request.remote_addr  # Get IP address
+        redis_client = get_redis()
+        ip_rate_limit_key = f'rate_limit_set_favourite_coffee:{ip_address}'
+
+        if redis_client.exists(ip_rate_limit_key):
+            # If key exists, increment its value
+            redis_client.incr(ip_rate_limit_key)
+            current_count = int(redis_client.get(ip_rate_limit_key).decode())
+            if current_count > 10:
+                # If the incremented value is more than 10, return an error
+                return jsonify({'error': 'Rate limit exceeded'}), 429
+        else:
+            # If key doesn't exist, create it and set an expiration time till the end of the current minute
+            redis_client.set(ip_rate_limit_key, 1, 60)
+
     # Basic auth token handling - getting user
     auth_header = request.headers.get('Authorization')
     if not auth_header or not auth_header.startswith('Basic '):
@@ -99,7 +115,7 @@ def favourite_coffee():
         user.coffee = coffee
         db.session.commit()
 
-        return leaderboard()
+        return return_leaderboard()
 
     elif request.method == 'GET':
         # Return user's favourite coffee
@@ -120,18 +136,27 @@ def leaderboard():
     user_key = f"leaderboard_rate_limit:{user_name}:{current_minute}"
     redis_client = get_redis()
 
-    if redis_client.exists(user_key) and int(redis_client.get(user_key).decode()) >= 3:
-        return jsonify({'error': 'Rate limit exceeded'}), 429  # Return 429 Too Many Requests
+    if redis_client.exists(user_key):
+        # If key exists, increment its value
+        redis_client.incr(user_key)
+        current_count = int(redis_client.get(user_key).decode())
+        if current_count > 3:
+            # If the incremented value is more than 10, return an error
+            return jsonify({'error': 'Rate limit exceeded'}), 429
     else:
-        redis_client.incr(user_key, 1)
-        redis_client.expire(user_key, 60)  # Expire key after 1 minute
+        # If key doesn't exist, create it and set an expiration time till the end of the current minute
+        redis_client.set(user_key, 1, 60)
 
+    return return_leaderboard()
+
+
+def return_leaderboard():
     # Show the top 3 most popular coffees
-    top_coffees = db.session.query(User.coffee, func.count(User.coffee))\
-                             .group_by(User.coffee)\
-                             .order_by(func.count(User.coffee).desc())\
-                             .limit(3)\
-                             .all()
+    top_coffees = db.session.query(User.coffee, func.count(User.coffee)) \
+        .group_by(User.coffee) \
+        .order_by(func.count(User.coffee).desc()) \
+        .limit(3) \
+        .all()
     return jsonify({'top3': [{coffee: count} for coffee, count in top_coffees]})
 
 
