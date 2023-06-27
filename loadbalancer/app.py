@@ -2,21 +2,36 @@ from flask import Flask, redirect
 from threading import Thread
 from time import sleep
 import requests
-import os
+import boto3
+import json
 
 app = Flask(__name__)
 
+# Setup AWS S3 client
+s3 = boto3.client('s3')
+
+# Define the bucket and object key
+bucket = 'hyusta-example-bucket'
+key = 'load-balancer-config.json'
+
+# Retrieve object from S3
+s3_object = s3.get_object(Bucket=bucket, Key=key)
+config_file = s3_object['Body'].read().decode('utf-8')
+config = json.loads(config_file)
+
 # Number of backend servers
-num_backends = int(os.getenv("NUMBER_OF_BACKENDS", 1))
+num_backends = int(config.get("number_of_backends", 1))
 
 # Define the base name of your backend servers
-base_service_name = 'backend'
+base_service_name = config.get("base_service_name", "service")
+
+print(f"Number of backends: {num_backends}")
+print(f"Base service name: {base_service_name}")
 
 # List of your backend servers
 internal_services = [f"http://{base_service_name}-{i}:8080" for i in range(1, num_backends + 1)]
 external_services = [f"http://localhost:{8080 + i}" for i in range(1, num_backends + 1)]
 healthy_services = list(zip(internal_services, external_services))
-
 
 def health_check():
     global healthy_services
@@ -37,7 +52,7 @@ def health_check():
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE',
-'PATCH'])
+                                    'PATCH'])
 def load_balancer(path):
     if not healthy_services:
         return 'No healthy backends', 503

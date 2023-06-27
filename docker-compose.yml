@@ -39,6 +39,8 @@ services:
       - distributed-app
     volumes:
       - ./loadbalancer:/app
+    env_file:
+      - ./loadbalancer/.env
 
   backend-1:
     <<: *backend-defaults
